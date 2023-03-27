@@ -1,0 +1,114 @@
+#逻辑回归：鸢尾花二分类实验
+#逻辑回归算法特点：
+#（1）逻辑回归对自变量分布没有要求；（2）因变量是离散型变量，即分类变量；（3）逻辑回归分析的是因变量取某个值的概率和自变量之间的关系
+
+#1.数据准备：
+# （1）下载数据：数据集包含3类，每个类别有50实例，其中每个类别都涉及一种鸢尾植物
+#   方法一：http://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data
+#   方法二：https://ascend-professional-construction-dataset.obs.cn-north-4.myhuaweicloud.com/MachineLearning/iris.data
+
+# （2）上传数据到实验环境
+
+
+#2.导入MindSpore模块和辅助模块
+import os
+# os.environ['DEVICE_ID'] = '6'
+import csv
+import numpy as np
+
+import mindspore as ms
+from mindspore import nn
+from mindspore import context
+from mindspore import dataset
+from mindspore.train.callback import LossMonitor
+from mindspore.common.api import ms_function
+from mindspore.ops import operations as P
+#当前实验选择算力为Ascend，如果在本地体验，参数device_target设置为"CPU”
+
+context.set_context(mode=context.GRAPH_MODE, device_target="CPU")
+
+
+#3.读取Iris数据集并且查看部分数据
+with open('iris.data') as csv_file:
+    data = list(csv.reader(csv_file, delimiter=','))
+print(data[40:60]) # 打印部分数据
+
+
+#4.抽取样本
+#取前两类样本（共100条），将数据集的4个属性作为自变量X。将数据集的2个类别映射为{0, 1}，作为因变量Y。
+label_map = {
+    'Iris-setosa': 0,
+    'Iris-versicolor': 1,
+}
+
+X = np.array([[float(x) for x in s[:-1]] for s in data[:100]], np.float32)
+Y = np.array([[label_map[s[-1]]] for s in data[:100]], np.float32)
+
+
+#5.样本可视化
+#取样本的前两个属性进行2维可视化，可以看到在前两个属性上两类样本是线性可分的。
+from matplotlib import pyplot as plt
+%matplotlib inline
+plt.scatter(X[:50, 0], X[:50, 1], label='Iris-setosa')
+plt.scatter(X[50:, 0], X[50:, 1], label='Iris-versicolor')
+plt.xlabel('sepal length')
+plt.ylabel('sepal width')
+plt.legend()
+
+
+#6.分割数据集
+#将数据集按8:2划分为训练集和验证集：
+train_idx = np.random.choice(100, 80, replace=False)
+test_idx = np.array(list(set(range(100)) - set(train_idx)))
+X_train, Y_train = X[train_idx], Y[train_idx]
+X_test, Y_test = X[test_idx], Y[test_idx]
+
+
+#7.数据类型转换
+#使用MindSpore的GeneratorDataset接口将numpy.ndarray类型的数据转换为Dataset：
+XY_train = list(zip(X_train, Y_train))
+ds_train = dataset.GeneratorDataset(XY_train, ['x', 'y'])
+# ds_train.set_dataset_size(80)
+ds_train = ds_train.shuffle(buffer_size=80).batch(32, drop_remainder=True)
+
+
+#8.模型建立与训练
+
+#（1）可视化逻辑回归函数
+#Ps：逻辑回归函数常用的函数是Sigmoid函数，可以将连续值映射到{0,1}
+coor_x = np.arange(-10, 11, dtype=np.float32)
+coor_y = nn.Sigmoid()(ms.Tensor(coor_x)).asnumpy()
+plt.plot(coor_x, coor_y)
+plt.xlabel('x')
+plt.ylabel('p')
+
+
+#（2）建立模型
+#自定义损失函数
+class Loss(nn.Cell):
+    def __init__(self):
+        super(Loss, self).__init__()
+        self.sigmoid_cross_entropy_with_logits = P.SigmoidCrossEntropyWithLogits()
+        self.reduce_mean = P.ReduceMean(keep_dims=False)
+    def construct(self, x, y):
+        loss = self.sigmoid_cross_entropy_with_logits(x, y)
+        return self.reduce_mean(loss, -1)
+
+net = nn.Dense(4, 1)
+loss = Loss()
+opt = nn.optim.SGD(net.trainable_params(), learning_rate=0.003)
+
+
+#（3）模型训练
+#使用2分类的Iris数据集对模型进行几代Epoch训练
+model = ms.train.Model(net, loss, opt)
+model.train(10, ds_train, callbacks=[LossMonitor(per_print_times=ds_train.get_dataset_size())], dataset_sink_mode=False)
+
+
+#（4）模型评估
+#计算模型在测试集上精度，测试集上的准确率达到了1.0左右，即逻辑回归模型学会了区分2类鸢尾花。
+x = model.predict(ms.Tensor(X_test)).asnumpy()
+pred = np.round(1 / (1 + np.exp(-x)))
+correct = np.equal(pred, Y_test)
+acc = np.mean(correct)
+print('Test accuracy is', acc)
