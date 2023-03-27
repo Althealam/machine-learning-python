@@ -1,0 +1,120 @@
+#K近邻算法：红酒分类实验
+#KNN的基本要素：
+#（1）K值，一个样本的分类是由K个邻居的“多数表决”确定的。K值越小，容易受噪声影响，反之，会使类别之间的界限变得模糊。
+#（2）距离度量，反映了特征空间中两个样本间的相似度，距离越小，越相似。常用的有Lp距离（p=2时，即为欧式距离）、曼哈顿距离、海明距离等。
+#（3）分类决策规则，通常是多数表决，或者基于距离加权的多数表决（权值与距离成反比）。
+
+
+#1.下载数据
+#对来自意大利同一地区但来自三个不同品种的葡萄酒进行化学分析的结果。数据集分析了三种葡萄酒中每种所含13种成分的量。
+#Wine数据集的官网：[Wine Data Set](http://archive.ics.uci.edu/ml/datasets/Wine)
+
+#2.数据读取与处理
+#（1）导入MindSpore模块和辅助模块
+import os
+# os.environ['DEVICE_ID'] = '4'
+import csv
+import numpy as np
+
+import mindspore as ms
+from mindspore import context
+from mindspore import nn
+from mindspore.ops import operations as P
+from mindspore.ops import functional as F
+
+context.set_context(device_target="CPU")
+
+
+#（2）读取Wine数据集wine.data，并且查看部分数据
+with open('wine.data') as csv_file:
+    data = list(csv.reader(csv_file, delimiter=','))
+print(data[56:62]+data[130:133]) # 打印部分数据
+
+
+#（3）取三类样本（共178条），将数据集的13个属性作为自变量X。将数据集的3个类别作为因变量Y。
+X = np.array([[float(x) for x in s[1:]] for s in data[:178]], np.float32)
+Y = np.array([s[0] for s in data[:178]], np.int32)
+
+
+#（4）取样本的某两个属性进行2维可视化，可以看到在某两个属性上样本的分布情况以及可分性。
+from matplotlib import pyplot as plt
+%matplotlib inline
+attrs = ['Alcohol', 'Malic acid', 'Ash', 'Alcalinity of ash', 'Magnesium', 'Total phenols',
+         'Flavanoids', 'Nonflavanoid phenols', 'Proanthocyanins', 'Color intensity', 'Hue',
+         'OD280/OD315 of diluted wines', 'Proline']
+plt.figure(figsize=(10, 8))
+for i in range(0, 4):
+    plt.subplot(2, 2, i+1)
+    a1, a2 = 2 * i, 2 * i + 1
+    plt.scatter(X[:59, a1], X[:59, a2], label='1')
+    plt.scatter(X[59:130, a1], X[59:130, a2], label='2')
+    plt.scatter(X[130:, a1], X[130:, a2], label='3')
+    plt.xlabel(attrs[a1])
+    plt.ylabel(attrs[a2])
+    plt.legend()
+plt.show()
+
+
+
+#（5）将数据集按128:50划分为训练集（已知类别样本）和验证集（待验证样本）：
+train_idx = np.random.choice(178, 128, replace=False)
+test_idx = np.array(list(set(range(178)) - set(train_idx)))
+X_train, Y_train = X[train_idx], Y[train_idx]
+X_test, Y_test = X[test_idx], Y[test_idx]
+
+
+#3.计算距离
+#利用MindSpore提供的tile, suqare, ReduceSum, sqrt, TopK等算子，通过矩阵运算的方式同时计算输入样本x和已明确分类的其他样本X_train的距离，并计算出top k近邻。
+class KnnNet(nn.Cell):
+    def __init__(self, k):
+        super(KnnNet, self).__init__()
+        self.tile = P.Tile()
+        self.sum = P.ReduceSum()
+        self.topk = P.TopK()
+        self.k = k
+
+    def construct(self, x, X_train):
+        # Tile input x to match the number of samples in X_train
+        x_tile = self.tile(x, (128, 1))
+        square_diff = F.square(x_tile - X_train)
+        square_dist = self.sum(square_diff, 1)
+        dist = F.sqrt(square_dist)
+        # -dist mean the bigger the value is, the nearer the samples are
+        values, indices = self.topk(-dist, self.k)
+        return indices
+
+
+def knn(knn_net, x, X_train, Y_train):
+    acc = 0
+knn_net = KnnNet(5)
+for x, y in zip(X_test, Y_test):
+    pred = knn(knn_net, x, X_train, Y_train)
+    acc += (pred == y)
+    print('label: %d, prediction: %s' % (y, pred))
+print('Validation accuracy is %f' % (acc/len(Y_test)))
+    x, X_train = ms.Tensor(x), ms.Tensor(X_train)
+    indices = knn_net(x, X_train)
+    topk_cls = [0]*len(i在验证集上验证KNN算法的有效性，取k = 5，验证精度接近80%，说明KNN算法在该3分类任务上有效，能根据酒的13种属性判断出酒的品种。
+                       acc = 0
+knn_net = KnnNet(5)
+for x, y in zip(X_test, Y_test):
+    pred = knn(knn_net, x, X_train, Y_train)
+    acc += (pred == y)
+    print('label: %d, prediction: %s' % (y, pred))
+print('Validation accuracy is %f' % (acc/len(Y_test)))ndices.asnumpy())
+    for idx in indices.asnumpy():
+        topk_cls[Y_train[idx]] += 1
+    cls = np.argmax(topk_cls)
+    return cls
+
+
+#4.预测
+#在验证集上验证KNN算法的有效性，取k = 5，验证精度接近80%，说明KNN算法在该3分类任务上有效，能根据酒的13种属性判断出酒的品种。
+acc = 0
+knn_net = KnnNet(5)
+for x, y in zip(X_test, Y_test):
+    pred = knn(knn_net, x, X_train, Y_train)
+    acc += (pred == y)
+    print('label: %d, prediction: %s' % (y, pred))
+print('Validation accuracy is %f' % (acc/len(Y_test)))
+
