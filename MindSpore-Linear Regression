@@ -1,0 +1,67 @@
+#线性回归模拟实验
+#线性回归的特点：
+#（1）自变量服从正态分布；（2）因变量是连续性数值变量；（3）自变量和因变量呈现线性关系
+
+#Part1:导入MindSpre模块和辅助模块
+import os
+# os.environ['DEVICE_ID'] = '0'
+import numpy as np
+
+import mindspore as ms
+from mindspore import nn
+from mindspore import context
+#当前实验选择算力为Ascend，如果在本地体验，参数device_target设置为"CPU”
+
+context.set_context(mode=context.GRAPH_MODE, device_target="CPU")
+
+
+
+#Part2:生成模拟数据：利用线性函数y = -5 * x + 0.1，并在其中加入少许扰动。
+x = np.arange(-5, 5, 0.3)[:32].reshape((32, 1))
+#numpy.arange(n).reshape(a, b) 依次生成n个自然数，并且以a行b列的数组形式显示
+#np.arange(a,b,c)：a为起始值，b为终点值，c为步长
+y = -5 * x +  0.1 * np.random.normal(loc=0.0, scale=20.0, size=x.shape)
+#np.random.normal为生成符合正态分布的随机数，为扰动
+
+
+
+#Part3:建立模型
+#使用MindSpore提供的nn.Dense(1, 1)算子作为线性模型
+#其中(1, 1)表示线性模型的输入和输出皆是1维，即w是1x1的矩阵。算子会随机初始化权重w和偏置
+net = nn.Dense(1, 1)
+loss_fn = nn.loss.MSELoss() #均方差作为损失函数
+opt = nn.optim.SGD(net.trainable_params(), learning_rate=0.01) #随机梯度下降对模型进行优化
+with_loss = nn.WithLossCell(net, loss_fn)
+train_step = nn.TrainOneStepCell(with_loss, opt).set_train()
+
+
+
+#Part4:使用模拟数据训练模型
+for epoch in range(20):
+    loss = train_step(ms.Tensor(x, ms.float32), ms.Tensor(y, ms.float32))
+    print('epoch: {0}, loss is {1}'.format(epoch, loss))
+#训练了一定的轮次后，得到的模型十分接近真实的线性函数，利用训练好的模型进行预测
+    
+    
+
+#Part5:使用训练好的模型进行预测
+wb = [x.asnumpy() for x in net.trainable_params()]
+w, b = np.squeeze(wb[0]), np.squeeze(wb[1])
+print('The true linear function is y = -5 * x + 0.1')
+print('The trained linear model is y = {0} * x + {1}'.format(w, b))
+
+for i in range(-10, 11, 5):
+    print('x = {0}, predicted y = {1}'.format(i, net(ms.Tensor([[i]], ms.float32))))
+    
+
+    
+#Part6:可视化
+#模拟的样本数据、真实的线性函数和训练得到的线性模型如下图所示
+from matplotlib import pyplot as plt
+%matplotlib inline
+plt.scatter(x, y, label='Samples')
+plt.plot(x, w * x +  b, c='r', label='True function')
+plt.plot(x, -5 * x +  0.1, c='b', label='Trained model')
+plt.legend()
+
+
